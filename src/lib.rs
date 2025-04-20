@@ -1,7 +1,7 @@
 //! This crate exposes single utility macro `subprocess_test`
 //!
 //! Macro generates test function code in such a way that first test code block
-//! is executed in separate subprocess using custom `cargo test` invocation,
+//! is executed in separate subprocess by re-invoking current test executable,
 //! its output is captured, filtered a bit and then fed to verification function.
 //! Test decides whether it's in normal or subprocess mode through marker environment variable
 //!
@@ -42,25 +42,27 @@
 //!         eprintln!("Bar");
 //!     }
 //!     // `verify` block is optional;
-//!     // if absent, it's substituted with block which just asserts that exit code was 0
+//!     // if absent, it's substituted with block which just asserts that subprocess succeeded
 //!     // and prints test output in case of failure
 //!     //
-//!     // Parameter names can be any valid identifiers
-//!     verify |code, output| {
+//!     // Parameters can be any names. Their meanings:
+//!     // * `success` - boolean which is `true` if subprocess succeeded
+//!     // * `output` - subprocess output collected into string, both `stdout` and `stderr`
+//!     verify |success, output| {
 //!         // This block is run as normal part of test and in general must succeed
-//!         assert_eq!(code, 0);
+//!         assert!(success);
 //!         assert_eq!(output, "Foo\nBar\n");
 //!     }
 //! }
 //! ```
-//! 
+//!
 //! # Limitations
-//! 
+//!
 //! Macro doesn't work well with `#[should_panic]` attribute because there's only one test function
 //! which runs in two modes. If subprocess test panics as expected, subprocess succeeds, and
 //! `verify` block must panic too. Just use `verify` block and do any checks you need there.
 use std::borrow::Cow;
-use std::env::var_os;
+use std::env::{args_os, var_os};
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::process::{Command, Stdio};
@@ -78,7 +80,7 @@ macro_rules! subprocess_test {
             ))?]
             $(#[$attrs:meta])*
             fn $test_name:ident () $test_block:block
-            $(verify |$status_param:ident, $stdout_param:ident| $verify_block:block)?
+            $(verify |$success_param:ident, $stdout_param:ident| $verify_block:block)?
         )*
     ) => {
         $(
@@ -87,7 +89,6 @@ macro_rules! subprocess_test {
             fn $test_name() {
                 // NB: adjust full path to runner function whenever this code is moved to other module
                 $crate::run_subprocess_test(
-                    env!("CARGO_PKG_NAME"),
                     concat!(module_path!(), "::", stringify!($test_name)),
                     $crate::subprocess_test! {
                         @tokens_or_default { $($(Some($subp_var_name))?)? }
@@ -100,16 +101,16 @@ macro_rules! subprocess_test {
                     || $test_block,
                     $crate::subprocess_test! {
                         @tokens_or_default {
-                            $(|$status_param, $stdout_param| $verify_block)?
+                            $(|$success_param, $stdout_param| $verify_block)?
                         } or {
                             // NB: we inject closure here, to make panic report its location
                             // at macro expansion
-                            |exit_code, output| {
-                                if exit_code != 0 {
+                            |success, output| {
+                                if !success {
                                     eprintln!("{output}");
                                     // In case panic location will point to whole macro start,
                                     // you'll get at least test name
-                                    panic!("Test {} subprocess failed with {exit_code}", stringify!($test_name));
+                                    panic!("Test {} subprocess failed", stringify!($test_name));
                                 }
                             }
                         }
@@ -132,12 +133,11 @@ macro_rules! subprocess_test {
 
 #[doc(hidden)]
 pub fn run_subprocess_test(
-    package_name: &str,
     full_test_name: &str,
     var_name: Option<&str>,
     boundary: Option<&str>,
     test_fn: impl FnOnce(),
-    verify_fn: impl FnOnce(i32, String),
+    verify_fn: impl FnOnce(bool, String),
 ) {
     const DEFAULT_SUBPROCESS_ENV_VAR_NAME: &str = "__TEST_RUN_SUBPROCESS__";
     const DEFAULT_OUTPUT_BOUNDARY: &str = "\n========================================\n";
@@ -152,7 +152,6 @@ pub fn run_subprocess_test(
     } else {
         DEFAULT_OUTPUT_BOUNDARY.into()
     };
-    let cargo = var_os("CARGO").unwrap_or("cargo".into());
     // If test phase is requested, execute it and bail immediately
     if var_os(var_name).is_some() {
         print!("{boundary}");
@@ -162,15 +161,19 @@ pub fn run_subprocess_test(
         test_fn();
         return;
     }
-    // Otherwise, perform main runner phase
-    // Note that we don't perform separate compilation phase,
-    // as we always run this code as test
+    // Otherwise, perform main runner phase.
+    // Just run same executable but with different options
     let (tmpfile, stdout, stderr) = tmpfile_buffer();
+    let exe_path = args_os().next().expect("Test executable path not found");
 
-    let exit_code = Command::new(&cargo)
-        .args(["test", "-q", "-p"])
-        .arg(package_name)
-        .args(["--", "--include-ignored", "--nocapture", "--test"])
+    let success = Command::new(exe_path)
+        .args([
+            "--include-ignored",
+            "--nocapture",
+            "--quiet",
+            "--exact",
+            "--test",
+        ])
         .arg(full_test_name)
         .env(var_name, "")
         .stdin(Stdio::null())
@@ -178,8 +181,7 @@ pub fn run_subprocess_test(
         .stderr(stderr)
         .status()
         .expect("Failed to execute test in binary output mode")
-        .code()
-        .expect("Test subprocess should've completed and got its status code");
+        .success();
 
     let mut output = read_file(tmpfile);
     let boundary_at = output
@@ -192,7 +194,7 @@ pub fn run_subprocess_test(
         output.truncate(boundary_at);
     }
 
-    verify_fn(exit_code, output);
+    verify_fn(success, output);
 }
 
 fn tmpfile_buffer() -> (File, File, File) {
@@ -223,8 +225,8 @@ subprocess_test! {
     fn name_collision() {
         println!("One");
     }
-    verify |code, output| {
-        assert_eq!(code, 0);
+    verify |success, output| {
+        assert!(success);
         assert_eq!(output, "One\n");
     }
 
@@ -238,8 +240,8 @@ subprocess_test! {
     fn simple_verify() {
         println!("Simple verify test");
     }
-    verify |code, output| {
-        assert_eq!(code, 0);
+    verify |success, output| {
+        assert!(success);
         assert_eq!(output, "Simple verify test\n");
     }
 
@@ -247,8 +249,8 @@ subprocess_test! {
     fn simple_failure() {
         panic!("Oopsie!");
     }
-    verify |code, output| {
-        assert_ne!(code, 0);
+    verify |success, output| {
+        assert!(!success);
         // Note that panic output contains stacktrace and other stuff
         assert!(output.contains("Oopsie!\n"));
     }
@@ -269,8 +271,8 @@ subprocess_test! {
         println!("\n!!!!!!!!!!!!!!!!\n");
         println!("Three");
     }
-    verify |code, output| {
-        assert_eq!(code, 0);
+    verify |success, output| {
+        assert!(success);
         assert_eq!(output, "One\nTwo\n");
     }
 
@@ -279,18 +281,18 @@ subprocess_test! {
     fn should_panic_test() {
         panic!("Oopsie!");
     }
-    verify |exit_code, _output| {
-        assert_ne!(exit_code, 0, "Correct result should cause panic");
+    verify |success, _output| {
+        assert!(!success, "Correct result should cause panic");
     }
 
     #[test]
     fn test_aborts() {
-        println!("CARGO_BIN_NAME = {:?}", var_os("CARGO_BIN_NAME"));
+        println!("Banana");
         eprintln!("Mango");
         std::process::abort();
     }
-    verify |code, output| {
-        assert_ne!(code, 0);
+    verify |success, output| {
+        assert!(!success);
         assert_eq!(output, "Banana\nMango\n");
     }
 }

@@ -9,8 +9,8 @@ subprocess_test::subprocess_test! {
     fn integration_simple_verify() {
         println!("Simple verify test");
     }
-    verify |code, output| {
-        assert_eq!(code, 0);
+    verify |success, output| {
+        assert!(success);
         assert_eq!(output, "Simple verify test\n");
     }
 
@@ -18,8 +18,8 @@ subprocess_test::subprocess_test! {
     fn integration_simple_failure() {
         panic!("Oopsie!");
     }
-    verify |code, output| {
-        assert_ne!(code, 0);
+    verify |success, output| {
+        assert!(!success);
         // Note that panic output contains stacktrace and other stuff
         assert!(output.contains("Oopsie!\n"));
     }
@@ -40,8 +40,8 @@ subprocess_test::subprocess_test! {
         println!("\n!!!!!!!!!!!!!!!!\n");
         println!("Three");
     }
-    verify |code, output| {
-        assert_eq!(code, 0);
+    verify |success, output| {
+        assert!(success);
         assert_eq!(output, "One\nTwo\n");
     }
 
@@ -50,8 +50,8 @@ subprocess_test::subprocess_test! {
     fn integration_should_panic_test() {
         panic!("Oopsie!");
     }
-    verify |exit_code, _output| {
-        assert_ne!(exit_code, 0, "Correct result should cause panic");
+    verify |success, _output| {
+        assert!(!success, "Correct result should cause panic");
     }
 }
 

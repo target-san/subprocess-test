@@ -9,8 +9,8 @@ subprocess_test::subprocess_test! {
     fn name_collision() {
         println!("Two");
     }
-    verify |code, output| {
-        assert_eq!(code, 0);
+    verify |success, output| {
+        assert!(success);
         assert_eq!(output, "Two\n");
     }
 }
