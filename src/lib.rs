@@ -8,10 +8,35 @@
 //! Used when one needs to either run some test in isolation or validate test output
 //! regardless of its proper completion, i.e. even if it aborts
 //!
+//! # Small examples
+//!
+//! ```rust
+//! subprocess_test::subprocess_test! {
+//!     #[test]
+//!     fn just_success() {
+//!         let value = 1;
+//!         assert_eq!(value + 1, 2);
+//!     }
+//! }
+//! ```
+//!
+//! ```rust
+//! subprocess_test::subprocess_test! {
+//!     #[test]
+//!     fn one_plus_one() {
+//!         println!("{}", 1 + 1);
+//!     }
+//!     verify |success, output| {
+//!         assert!(success);
+//!         assert_eq!(output, "2\n");
+//!     }
+//! }
+//! ```
+//!
 //! # Usage
 //!
-//! ```rust,ignore
-//! subprocess_test! {
+//! ```rust
+//! subprocess_test::subprocess_test! {
 //!     // Mandatory test marker attribute; psrens are needed
 //!     // only if some attribute parameters are specified.
 //!     //
@@ -30,7 +55,7 @@
 //!         // The default boundary line is "========================================",
 //!         // so in rare case you expect conflict with actual test output, you can use
 //!         // this parameter to set custom output boundary.
-//!         output_boundary = "",
+//!         output_boundary = "<><><><><><><><>",
 //!     )]
 //!     // Any other attributes are allowed, yet are optional
 //!     #[ignore]
