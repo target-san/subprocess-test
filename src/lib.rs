@@ -180,13 +180,13 @@ pub fn run_subprocess_test(
         .stdout(stdout)
         .stderr(stderr)
         .status()
-        .expect("Failed to execute test in binary output mode")
+        .expect("Failed to execute test as subprocess")
         .success();
 
     let mut output = read_file(tmpfile);
     let boundary_at = output
         .find(&*boundary)
-        .expect("Test mode output should always include at least one boundary");
+        .expect("Subprocess output should always include at least one boundary");
 
     output.replace_range(..(boundary_at + boundary.len()), "");
 
