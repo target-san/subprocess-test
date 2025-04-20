@@ -2,7 +2,7 @@
 members = [".", "xtask"]
 
 [package]
-name = "subprocess-init"
+name = "subprocess-test"
 version = "0.1.0"
 edition = "2024"
 authors = [ "Igor Baidiuk <target.san@gmail.com>"]

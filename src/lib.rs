@@ -37,11 +37,10 @@ use tempfile::tempfile;
 macro_rules! subprocess_test {
     (
         $(
-            #[test]
-            $(#[subprocess_test(
+            #[test $((
                 $(env_var_name = $subp_var_name:literal $(,)?)?
                 $(output_boundary = $subp_output_boundary:literal $(,)?)?
-            )])?
+            ))?]
             $(#[$attrs:meta])*
             fn $test_name:ident () $test_block:block
             $(verify |$status_param:ident, $stdout_param:ident| $verify_block:block)?
@@ -180,4 +179,61 @@ fn read_file(mut file: File) -> String {
         .expect("Failed to read file into buffer");
 
     buffer
+}
+
+subprocess_test! {
+    #[test]
+    fn simple_success() {
+        let value = 1;
+        assert_eq!(value + 1, 2);
+    }
+
+    #[test]
+    fn simple_verify() {
+        println!("Simple verify test");
+    }
+    verify |code, output| {
+        assert_eq!(code, 0);
+        assert_eq!(output, "Simple verify test\n");
+    }
+
+    #[test]
+    fn simple_failure() {
+        panic!("Oopsie!");
+    }
+    verify |code, output| {
+        assert_ne!(code, 0);
+        // Note that panic output contains stacktrace and other stuff
+        assert!(output.contains("Oopsie!\n"));
+    }
+
+    #[test(
+        env_var_name = "__CUSTOM_SUBPROCESS_VAR__"
+    )]
+    fn custom_var() {
+        assert!(var_os("__CUSTOM_SUBPROCESS_VAR__").is_some());
+    }
+
+    #[test(
+        output_boundary = "!!!!!!!!!!!!!!!!"
+    )]
+    fn custom_boundary() {
+        println!("One");
+        println!("Two");
+        println!("\n!!!!!!!!!!!!!!!!\n");
+        println!("Three");
+    }
+    verify |code, output| {
+        assert_eq!(code, 0);
+        assert_eq!(output, "One\nTwo\n");
+    }
+
+    #[test]
+    #[should_panic]
+    fn should_panic_test() {
+        panic!("Oopsie!");
+    }
+    verify |exit_code, _output| {
+        assert_ne!(exit_code, 0, "Correct result should cause panic");
+    }
 }
