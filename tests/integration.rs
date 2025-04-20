@@ -54,3 +54,13 @@ subprocess_test::subprocess_test! {
         assert_ne!(exit_code, 0, "Correct result should cause panic");
     }
 }
+
+mod submodule_tests {
+    subprocess_test::subprocess_test! {
+        #[test]
+        fn submodule_test() {
+            let value = 1;
+            assert_eq!(value + 1, 2);
+        }
+    }
+}
