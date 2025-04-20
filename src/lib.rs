@@ -1,3 +1,64 @@
+//! This crate exposes single utility macro `subprocess_test`
+//!
+//! Macro generates test function code in such a way that first test code block
+//! is executed in separate subprocess using custom `cargo test` invocation,
+//! its output is captured, filtered a bit and then fed to verification function.
+//! Test decides whether it's in normal or subprocess mode through marker environment variable
+//!
+//! Used when one needs to either run some test in isolation or validate test output
+//! regardless of its proper completion, i.e. even if it aborts
+//!
+//! # Usage
+//!
+//! ```rust,ignore
+//! subprocess_test! {
+//!     // Mandatory test marker attribute; psrens are needed
+//!     // only if some attribute parameters are specified.
+//!     //
+//!     // Please also note that this attribute must be first,
+//!     // and its optional parameters must maintain order.
+//!     // This is due to limitations of Rust's macro-by-example.
+//!     #[test(     
+//!         // Optionally specify name of environment variable used to mark subprocess mode.
+//!         // Default name is "__TEST_RUN_SUBPROCESS__", so in very unprobable case case
+//!         // you're getting name collision here, you can change it.
+//!         env_var_name = "RUN_SUBPROCESS_ENV_VAR",
+//!         // While subprocess is executed using `cargo test -q -- --nocapture`,
+//!         // there's still some output from test harness.
+//!         // To filter it out, test prints two boundary lines, in the beginning
+//!         // and in the end of test's output, regardless if it succeeds or panics.
+//!         // The default boundary line is "========================================",
+//!         // so in rare case you expect conflict with actual test output, you can use
+//!         // this parameter to set custom output boundary.
+//!         output_boundary = "",
+//!     )]
+//!     // Any other attributes are allowed, yet are optional
+//!     #[ignore]
+//!     // Test can have any valid name, same as normal test function
+//!     fn dummy() {
+//!         // This block is intended to generate test output,
+//!         // although it can be used as normal test body
+//!         println!("Foo");
+//!         eprintln!("Bar");
+//!     }
+//!     // `verify` block is optional;
+//!     // if absent, it's substituted with block which just asserts that exit code was 0
+//!     // and prints test output in case of failure
+//!     //
+//!     // Parameter names can be any valid identifiers
+//!     verify |code, output| {
+//!         // This block is run as normal part of test and in general must succeed
+//!         assert_eq!(code, 0);
+//!         assert_eq!(output, "Foo\nBar\n");
+//!     }
+//! }
+//! ```
+//! 
+//! # Limitations
+//! 
+//! Macro doesn't work well with `#[should_panic]` attribute because there's only one test function
+//! which runs in two modes. If subprocess test panics as expected, subprocess succeeds, and
+//! `verify` block must panic too. Just use `verify` block and do any checks you need there.
 use std::borrow::Cow;
 use std::env::var_os;
 use std::fs::File;
@@ -6,33 +67,7 @@ use std::process::{Command, Stdio};
 
 use defer::defer;
 use tempfile::tempfile;
-/// Launches piece of test code as separate subprocess, collects all its output
-/// and then runs validation code against it
-///
-/// Used when one needs to either run some test in isolation or validate test output
-/// regardless of its proper completion, i.e. even if it aborts
-///
-/// # Usage
-/// ```rust,ignore
-/// subprocess_test! {
-///     #[test]     // Mandatory test attribute
-///     #[ignore]   // Any other attributes are allowed, yet are optional
-///     fn dummy() {    // Test can have any valid name
-///         // This block is intended to generate test output,
-///         // although it can be used as normal test body
-///         println!("Foo");
-///         eprintln!("Bar");
-///     }
-///     // `verify` block is optional;
-///     // if absent, it's substituted with block which just asserts that exit code was 0
-///     verify |code, output| { // Parameter names can be any valid identifiers
-///         // This block is run as normal part of test and in general must succeed
-///         assert_eq!(code, 0);
-///         assert_eq!(output, "Foo\nBar\n");
-///     }
-/// }
-/// ```
-///
+/// Implementation of `subprocess_test` macro. See crate-level documentation for details and usage examples
 #[macro_export]
 macro_rules! subprocess_test {
     (
@@ -72,7 +107,9 @@ macro_rules! subprocess_test {
                             |exit_code, output| {
                                 if exit_code != 0 {
                                     eprintln!("{output}");
-                                    panic!("Test process failed with {exit_code}");
+                                    // In case panic location will point to whole macro start,
+                                    // you'll get at least test name
+                                    panic!("Test {} subprocess failed with {exit_code}", stringify!($test_name));
                                 }
                             }
                         }
@@ -183,6 +220,15 @@ fn read_file(mut file: File) -> String {
 
 subprocess_test! {
     #[test]
+    fn name_collision() {
+        println!("One");
+    }
+    verify |code, output| {
+        assert_eq!(code, 0);
+        assert_eq!(output, "One\n");
+    }
+
+    #[test]
     fn simple_success() {
         let value = 1;
         assert_eq!(value + 1, 2);
@@ -235,6 +281,17 @@ subprocess_test! {
     }
     verify |exit_code, _output| {
         assert_ne!(exit_code, 0, "Correct result should cause panic");
+    }
+
+    #[test]
+    fn test_aborts() {
+        println!("CARGO_BIN_NAME = {:?}", var_os("CARGO_BIN_NAME"));
+        eprintln!("Mango");
+        std::process::abort();
+    }
+    verify |code, output| {
+        assert_ne!(code, 0);
+        assert_eq!(output, "Banana\nMango\n");
     }
 }
 
