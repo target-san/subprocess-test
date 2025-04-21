@@ -324,11 +324,52 @@ subprocess_test! {
 
 #[cfg(test)]
 mod submodule_tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    // Used to check that only single test is run per subprocess
+    static COMMON_PREFIX_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
     subprocess_test! {
         #[test]
         fn submodule_test() {
             let value = 1;
             assert_eq!(value + 1, 2);
+        }
+
+        #[test]
+        fn common_prefix() {
+            print!("One");
+            COMMON_PREFIX_COUNTER.fetch_add(1, Ordering::Relaxed);
+            assert_eq!(COMMON_PREFIX_COUNTER.load(Ordering::Relaxed), 1);
+        }
+        verify |success, output| {
+            assert!(success);
+            assert_eq!(output, "One");
+        }
+
+        #[test]
+        fn common_prefix_2() {
+            print!("Two");
+            COMMON_PREFIX_COUNTER.fetch_add(1, Ordering::Relaxed);
+            assert_eq!(COMMON_PREFIX_COUNTER.load(Ordering::Relaxed), 1);
+        }
+        verify |success, output| {
+            assert!(success);
+            assert_eq!(output, "Two");
+        }
+    }
+
+    mod common_prefix {
+        subprocess_test! {
+            #[test]
+            fn inner() {
+                print!("Three");
+                super::COMMON_PREFIX_COUNTER.fetch_add(1, super::Ordering::Relaxed);
+                assert_eq!(super::COMMON_PREFIX_COUNTER.load(super::Ordering::Relaxed), 1);
+            }
+            verify |success, output| {
+                assert!(success);
+                assert_eq!(output, "Three");
+            }
         }
     }
 }
