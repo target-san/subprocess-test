@@ -1,8 +1,8 @@
 //! This crate exposes single utility macro `subprocess_test`
 //!
 //! Macro generates test function code in such a way that first test code block
-//! is executed in separate subprocess by re-invoking current test executable,
-//! its output is captured, filtered a bit and then fed to verification function.
+//! is executed in separate subprocess by re-invoking current test executable.
+//! Its output is captured, filtered a bit and then fed to verification function.
 //! Test decides whether it's in normal or subprocess mode through marker environment variable
 //!
 //! Used when one needs to either run some test in isolation or validate test output
@@ -37,15 +37,15 @@
 //!
 //! ```rust
 //! subprocess_test::subprocess_test! {
-//!     // Mandatory test marker attribute; psrens are needed
-//!     // only if some attribute parameters are specified.
+//!     // Mandatory test marker attribute; parens are needed
+//!     // only if any attribute parameters are specified.
 //!     //
 //!     // Please also note that this attribute must be first,
 //!     // and its optional parameters must maintain order.
 //!     // This is due to limitations of Rust's macro-by-example.
 //!     #[test(     
 //!         // Optionally specify name of environment variable used to mark subprocess mode.
-//!         // Default name is "__TEST_RUN_SUBPROCESS__", so in very unprobable case case
+//!         // Default name is "__TEST_RUN_SUBPROCESS__", so in very improbable case case
 //!         // you're getting name collision here, you can change it.
 //!         env_var_name = "RUN_SUBPROCESS_ENV_VAR",
 //!         // While subprocess is executed using `cargo test -q -- --nocapture`,
