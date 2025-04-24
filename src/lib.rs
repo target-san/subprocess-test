@@ -17,11 +17,8 @@
 //!         let value = 1;
 //!         assert_eq!(value + 1, 2);
 //!     }
-//! }
-//! ```
-//!
-//! ```rust
-//! subprocess_test::subprocess_test! {
+//!     
+//!     /// Test's doc comments are supported just fine
 //!     #[test]
 //!     fn one_plus_one() {
 //!         println!("{}", 1 + 1);
@@ -30,12 +27,27 @@
 //!         assert!(success);
 //!         assert_eq!(output, "2\n");
 //!     }
+//!
+//!     #[test]
+//!     fn test_with_result() -> Result<(), ()> {
+//!         print!("{}", 1 + 1);
+//!         Ok(())
+//!     }
+//!     verify |success, output| {
+//!         if success && output == "2" {
+//!             Ok(())
+//!         } else {
+//!             Err(())
+//!         }
+//!     }
 //! }
 //! ```
 //!
 //! # Usage
 //!
 //! ```rust
+//! // Single macro invocation can include multiple test function definitions,
+//! // but not other functions or lang items
 //! subprocess_test::subprocess_test! {
 //!     /// You can specify doc comments for your subprocess test,
 //!     /// but only before `#[test]` attribute
@@ -80,6 +92,21 @@
 //!         assert!(success);
 //!         assert_eq!(output, "Foo\nBar\n");
 //!     }
+//!
+//!     #[test]
+//!     // Test writer can use explicit `Result` type, like with normal test functions.
+//!     // In this case, `verify` block is mandatory, and both main test block and `verify`
+//!     // block must return same result type
+//!     fn test_returns_result() -> Result<(), String> {
+//!         Ok(())
+//!     }
+//!     verify |success, output| {
+//!         if success && output.is_empty() {
+//!             Ok(())
+//!         } else {
+//!             Err("Oopsie, test failed!")
+//!         }
+//!     }
 //! }
 //! ```
 //!
@@ -88,6 +115,14 @@
 //! Macro doesn't work well with `#[should_panic]` attribute because there's only one test function
 //! which runs in two modes. If subprocess test panics as expected, subprocess succeeds, and
 //! `verify` block must panic too. Just use `verify` block and do any checks you need there.
+//!
+//! Another minor limitation, as described in [#Usage] section, is that first goes doc comment,
+//! then mandatory `#[test]` attribute with extensions, then any other attributes,
+//! then function body and `verify` block.
+//!
+//! If test writer uses explicit result type and forgets to write `verify` block, he'll get error
+//! like "expected return value `Result<_, _>`, got `()" instead of possibly more comprehensive
+//! "missing `verify` block". Again, this is due to limitations of macro-by-example
 use std::borrow::Cow;
 use std::env::{args_os, var_os};
 use std::fs::File;
@@ -143,7 +178,7 @@ macro_rules! subprocess_test {
                             }
                         }
                     },
-                );
+                )
             }
         )*
     };
@@ -321,6 +356,46 @@ subprocess_test! {
     verify |success, output| {
         assert!(!success);
         assert_eq!(output, "Banana\nMango\n");
+    }
+
+    /// Checks that positive test with result works as intended
+    #[test]
+    fn positive_test_result() -> Result<(), ()> {
+        print!("Result succeeds");
+        Ok(())
+    }
+    verify |success, output| {
+        if success && output == "Result succeeds" {
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
+
+    /// Checks that negative test with result works as intended
+    #[test]
+    fn negative_test_result() -> Result<(), ()> {
+        print!("Result fails");
+        Err(())
+    }
+    verify |success, output| {
+        if !success && output == "Result fails" {
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
+
+    #[test]
+    fn panicking_test_result() -> Result<(), ()> {
+        panic!("Result panics")
+    }
+    verify |success, output| {
+        if !success && output.contains("Result panics") {
+            Ok(())
+        } else {
+            Err(())
+        }
     }
 }
 
