@@ -37,6 +37,8 @@
 //!
 //! ```rust
 //! subprocess_test::subprocess_test! {
+//!     /// You can specify doc comments for your subprocess test,
+//!     /// but only before `#[test]` attribute
 //!     // Mandatory test marker attribute; parens are needed
 //!     // only if any attribute parameters are specified.
 //!     //
@@ -99,20 +101,21 @@ use tempfile::tempfile;
 macro_rules! subprocess_test {
     (
         $(
+            $(#[doc = $doc_lit:literal])*
             #[test $((
                 $(env_var_name = $subp_var_name:literal $(,)?)?
                 $(output_boundary = $subp_output_boundary:literal $(,)?)?
             ))?]
             $(#[$attrs:meta])*
-            fn $test_name:ident () $test_block:block
+            fn $test_name:ident () $(-> $test_result:ty)? $test_block:block
             $(verify |$success_param:ident, $stdout_param:ident| $verify_block:block)?
         )*
     ) => {
         $(
+            $(#[doc = $doc_lit])*
             #[test]
             $(#[$attrs])*
-            fn $test_name() {
-                // NB: adjust full path to runner function whenever this code is moved to other module
+            fn $test_name() $(-> $test_result)? {
                 $crate::run_subprocess_test(
                     concat!(module_path!(), "::", stringify!($test_name)),
                     $crate::subprocess_test! {
@@ -157,13 +160,13 @@ macro_rules! subprocess_test {
 }
 
 #[doc(hidden)]
-pub fn run_subprocess_test(
+pub fn run_subprocess_test<R>(
     full_test_name: &str,
     var_name: Option<&str>,
     boundary: Option<&str>,
-    test_fn: impl FnOnce(),
-    verify_fn: impl FnOnce(bool, String),
-) {
+    test_fn: impl FnOnce() -> R,
+    verify_fn: impl FnOnce(bool, String) -> R,
+) -> R {
     const DEFAULT_SUBPROCESS_ENV_VAR_NAME: &str = "__TEST_RUN_SUBPROCESS__";
     const DEFAULT_OUTPUT_BOUNDARY: &str = "\n========================================\n";
 
@@ -183,8 +186,7 @@ pub fn run_subprocess_test(
         // We expect that in case of panic we'll get test harness footer,
         // but in case of abort we won't get it, so finisher won't be needed
         defer! { print!("{boundary}") };
-        test_fn();
-        return;
+        return test_fn();
     }
     // Otherwise, perform main runner phase.
     // Just run same executable but with different options
@@ -219,7 +221,7 @@ pub fn run_subprocess_test(
         output.truncate(boundary_at);
     }
 
-    verify_fn(success, output);
+    verify_fn(success, output)
 }
 
 fn tmpfile_buffer() -> (File, File, File) {
