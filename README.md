@@ -12,11 +12,7 @@ subprocess_test::subprocess_test! {
         let value = 1;
         assert_eq!(value + 1, 2);
     }
-}
-```
-
-```rust
-subprocess_test::subprocess_test! {
+    /// Custom validation of output
     #[test]
     fn one_plus_one() {
         println!("{}", 1 + 1);
